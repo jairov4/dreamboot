@@ -45,8 +45,7 @@ EFI_STATUS FindImageFile(CHAR16* diskImageFileName, EFI_HANDLE* handle, SIMPLE_R
 	return EFI_NOT_FOUND;
 }
 
-
-EFI_STATUS FindTargetDisk2(CHAR16* targetDiskPath, EFI_BLOCK_IO** block, EFI_DISK_IO** disk)
+EFI_STATUS FindTargetDisk(CHAR16* targetDiskPath, EFI_BLOCK_IO** block, EFI_DISK_IO** disk)
 {	
 	EFI_HANDLE* handleArray;
 	UINTN nbHandles;
@@ -95,45 +94,6 @@ EFI_STATUS FindTargetDisk2(CHAR16* targetDiskPath, EFI_BLOCK_IO** block, EFI_DIS
 
 	FreePool(handleArray);
 	return EFI_NOT_FOUND;
-}
-
-EFI_STATUS FindTargetDisk(CHAR16* path, EFI_BLOCK_IO** block, EFI_DISK_IO** disk)
-{
-	EFI_STATUS err;	
-	EFI_DEVICE_PATH* devicePath = FileDevicePath(NULL, path);
-	if (devicePath == NULL)
-	{
-		return EFI_NOT_FOUND;
-	}
-	Print(L"Device path built\n");
-
-	EFI_HANDLE deviceHandle;
-	err = LibDevicePathToInterface(&DiskIoProtocol, devicePath, (void**)disk);
-	if (err != EFI_SUCCESS)
-	{
-		return EFI_NOT_FOUND;
-	}
-	Print(L"Device implementing DiskIoProtocol interface retrieved\n");
-
-	err = BS->LocateDevicePath(&BlockIoProtocol, &devicePath, &deviceHandle);
-	if (err != EFI_SUCCESS)
-	{
-		return EFI_NOT_FOUND;
-	}
-	Print(L"Located handle for interface\n");
-
-	err = BS->HandleProtocol(deviceHandle, &BlockIoProtocol, (void**)block);
-	if (err != EFI_SUCCESS)
-	{
-		return EFI_NOT_FOUND;
-	}
-	Print(L"BlockIoProtocol interface retrieved\n");
-
-	Print(L"Detected MediaID: %d\n", (*block)->Media->MediaId);
-	Print(L"Detected Size: %d\n", (*block)->Media->LastBlock * (*block)->Media->BlockSize);
-	Print(L"Detected IsLogical: %d\n", (*block)->Media->LogicalPartition);
-
-	return EFI_SUCCESS;
 }
 
 #define BUFFER_SIZE 4096
@@ -224,7 +184,7 @@ EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
 		EFI_DISK_IO* disk;
 		EFI_BLOCK_IO* block;
-		err = FindTargetDisk2(targetDisk, &block, &disk);
+		err = FindTargetDisk(targetDisk, &block, &disk);
 		if (err != EFI_SUCCESS)
 		{
 			Print(L"Aborting due to target device not found\n");
