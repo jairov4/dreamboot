@@ -46,7 +46,7 @@ EFI_STATUS FindImageFile(CHAR16* diskImageFileName, EFI_HANDLE* handle, SIMPLE_R
 }
 
 
-EFI_STATUS FindTargetDisk2(EFI_BLOCK_IO** block, EFI_DISK_IO** disk, UINT32* mediaId)
+EFI_STATUS FindTargetDisk2(CHAR16* targetDiskPath, EFI_BLOCK_IO** block, EFI_DISK_IO** disk)
 {	
 	EFI_HANDLE* handleArray;
 	UINTN nbHandles;
@@ -57,29 +57,40 @@ EFI_STATUS FindTargetDisk2(EFI_BLOCK_IO** block, EFI_DISK_IO** disk, UINT32* med
 	{
 		return EFI_NOT_FOUND;
 	}
+	Print(L"Located %d handles implementing DiskIoProtocol\n", nbHandles);
 
 	for (UINTN i = 0; i < nbHandles; i++)
 	{
+		EFI_DEVICE_PATH* devPath = DevicePathFromHandle(handleArray[i]);
+		CHAR16* path = DevicePathToStr(devPath);
+		if (StrCmp(path, targetDiskPath) != 0)
+		{
+			Print(L"Discard device: %s\n", path);
+			continue;
+		}
+
 		// Open the Device IO protocol
 		err = BS->HandleProtocol(handleArray[i], &DiskIoProtocol, (void **)disk);
 		if (err != EFI_SUCCESS)
 		{
+			Print(L"Discard device: %s due DiskIoProtocol not present\n", path);
 			continue;
 		}
 
 		err = BS->HandleProtocol(handleArray[i], &BlockIoProtocol, (void**)block);
 		if (err != EFI_SUCCESS)
 		{
+			Print(L"Discard device due BlockIoProtocol not present: %s\n", path);
 			continue;
 		}
+		
+		Print(L"Found device: %s\n", path);
+		Print(L" Size: %d\n", (*block)->Media->LastBlock * (*block)->Media->BlockSize);
+		Print(L" IsLogical: %d\n", (*block)->Media->LogicalPartition);
+		Print(L" MediaId: %d\n", (*block)->Media->MediaId);
 
-		*mediaId = (*block)->Media->MediaId;
-		Print(L"Detected MediaID: %d\n", *mediaId);
-		Print(L"Detected Size: %d\n", (*block)->Media->LastBlock * (*block)->Media->BlockSize);
-		Print(L"Detected IsLogical: %d\n", (*block)->Media->LogicalPartition);
-
-		//FreePool(handleArray);
-		//return EFI_SUCCESS;
+		FreePool(handleArray);
+		return EFI_SUCCESS;
 	}
 
 	FreePool(handleArray);
@@ -125,9 +136,51 @@ EFI_STATUS FindTargetDisk(CHAR16* path, EFI_BLOCK_IO** block, EFI_DISK_IO** disk
 	return EFI_SUCCESS;
 }
 
-EFI_STATUS PerformCopy(SIMPLE_READ_FILE file, EFI_DISK_IO* disk)
-{
+#define BUFFER_SIZE 4096
 
+EFI_STATUS PerformCopy(SIMPLE_READ_FILE file, EFI_DISK_IO* disk, EFI_BLOCK_IO* block)
+{		
+	CHAR8 buffer[BUFFER_SIZE];
+	UINTN readBytes;
+	UINT64 offset = 0;
+	EFI_STATUS err;
+	
+	do
+	{
+		readBytes = BUFFER_SIZE;
+		err = ReadSimpleReadFile(file, offset, &readBytes, buffer);
+		if(err != EFI_SUCCESS)
+		{
+			StatusToString((CHAR16*)buffer, err);
+			Print(L"Error reading from image file: %d - %s\n", err, buffer);
+			return err;
+		}
+		
+		err = disk->WriteDisk(disk, block->Media->MediaId, offset, readBytes, buffer);
+		if (err != EFI_SUCCESS)
+		{
+			StatusToString((CHAR16*)buffer, err);
+			Print(L"Error writing to target disk: %d - %s\n", err, buffer);
+			return err;
+		}
+
+		offset += readBytes;
+
+		if (offset % (BUFFER_SIZE * 20) == 0)
+		{
+			Print(L"Copy progress: %d bytes\n", offset);
+		}
+	} while (readBytes == BUFFER_SIZE);
+
+	err = block->FlushBlocks(block);
+	if (err != EFI_SUCCESS)
+	{
+		StatusToString((CHAR16*)buffer, err);
+		Print(L"Error flushing buffer to target disk: %d - %s\n", err, buffer);
+		return err;
+	}
+
+	Print(L"Copy finished, total %d bytes\n", offset);
 
 	return EFI_SUCCESS;
 }
@@ -140,13 +193,29 @@ EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 	InitializeLib(ImageHandle, SystemTable);
 	
 	Print(L"Partition Format and Copier helper\n\n");
+
+	CHAR16** argv;
+	INTN argc = GetShellArgcArgv(ImageHandle, &argv);
 	
 	EFI_STATUS err;
 	do
 	{
+		Print(L"ArgCount: %d\n", argc);
+		if(argc < 3)
+		{
+			Print(L"Invalid argument count\n");
+			break;
+		}
+
+		CHAR16* imageFile = argv[1];
+		CHAR16* targetDisk = argv[2];
+
+		Print(L"Disk image file: %s\n", imageFile);
+		Print(L"Target device: %s\n", targetDisk);
+
 		EFI_HANDLE handle;
 		SIMPLE_READ_FILE file;
-		err = FindImageFile(L"\\disk.img", &handle, &file);
+		err = FindImageFile(imageFile, &handle, &file);
 		if (err != EFI_SUCCESS)
 		{
 			Print(L"Aborting due to source disk image file not found\n");
@@ -155,14 +224,14 @@ EFI_STATUS EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
 		EFI_DISK_IO* disk;
 		EFI_BLOCK_IO* block;
-		err = FindTargetDisk(L"BLK0", &block, &disk);
+		err = FindTargetDisk2(targetDisk, &block, &disk);
 		if (err != EFI_SUCCESS)
 		{
 			Print(L"Aborting due to target device not found\n");
 			break;
 		}
 		
-		PerformCopy(file, disk);
+		PerformCopy(file, disk, block);
 
 		CloseSimpleReadFile(file);
 	} while (0);
