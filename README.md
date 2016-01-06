@@ -1,7 +1,12 @@
-UEFI:SIMPLE - EFI development made easy
-=======================================
+UEFI Image Writer
+=================
 
-A simple UEFI "Hello World!" style application that can:
+[![Build status](https://ci.appveyor.com/api/projects/status/9oarh2rflxfqdmf8?svg=true)](https://ci.appveyor.com/project/jairov4/dreamboot)
+
+I wrote this application to enable easy image writing to a disk device.
+I was in trouble because my Intel Atom based tablet (Teclast X98) was bricked. It was running to BIOS but I was unable to install any OS due to I loss my droidboot (android fastboot) partition. I wrote this app to write a prepared image of first sectors of the disk containing the pre-created GPT partition table and partitions with contents including the droidboot image.
+
+A simple UEFI application that can:
 * be compiled on either on Windows or Linux (using Visual Studio 2015 or MinGW-w64).
 * be compiled for either x86_32 or x86_64 UEFI targets
 * be tested on the fly, through a [QEMU](http://www.qemu.org)+[OVMF](http://tianocore.github.io/ovmf/)
